@@ -119,29 +119,109 @@
     return counts;
   }
 
-  // Liefert alle verletzten Regeln für die gegebenen Anwesenheitszahlen
+  /*
+   * Liefert die Unterbesetzung je Stelle für die gegebenen Anwesenheitszahlen.
+   * Greifen für eine Stelle mehrere Regeln, zählt die strengste; die Begründung nennt alle.
+   */
   function violations(counts) {
-    const out = [];
+    const byRole = {};
     for (const r of RULES) {
       const required = r.min !== undefined ? r.min : Math.ceil(counts[r.base] / r.per);
-      if (counts[r.role] < required) {
-        const why = r.min !== undefined
-          ? `Mindestbesetzung: ${r.text}`
-          : `${counts[r.base]} ${ROLES[r.base].label} anwesend; Regel: ${r.text}`;
-        out.push({
-          rule: r,
-          required,
-          present: counts[r.role],
-          message: `${ROLES[r.role].label}: ${counts[r.role]} anwesend, ${required} nötig (${why})`,
-        });
+      if (counts[r.role] >= required) continue;
+      const why = r.min !== undefined
+        ? `Mindestbesetzung: ${r.text}`
+        : `${counts[r.base]} ${ROLES[r.base].label} anwesend; Regel: ${r.text}`;
+      const v = byRole[r.role];
+      if (!v) byRole[r.role] = { rule: r, required, reasons: [why] };
+      else {
+        v.reasons.push(why);
+        if (required > v.required) Object.assign(v, { rule: r, required });
       }
     }
+    return ROLE_ORDER.filter(role => byRole[role]).map(role => {
+      const v = byRole[role];
+      return {
+        rule: v.rule,
+        role,
+        required: v.required,
+        present: counts[role],
+        deficit: v.required - counts[role],
+        message: `${ROLES[role].label}: ${counts[role]} anwesend, ${v.required} nötig (${v.reasons.join(' bzw. ')})`,
+      };
+    });
+  }
+  const totalDeficit = v => v.reduce((sum, x) => sum + x.deficit, 0);
+
+  // Alle Aufteilungen von n gleichartigen Personen auf k Optionen
+  function compositions(n, k) {
+    if (k === 1) return [[n]];
+    const out = [];
+    for (let i = n; i >= 0; i--) for (const rest of compositions(n - i, k - 1)) out.push([i, ...rest]);
     return out;
   }
 
   /*
+   * Ermittelt die beste Besetzung eines Tages unter Einsatz von Vertretungen.
+   * Eine Person mit deputyFor zählt entweder in ihrer eigenen Stelle oder – als
+   * Vertretung – in genau einer der Stellen, die sie vertreten darf (dann fehlt sie
+   * in ihrer eigenen). Gewählt wird die Aufteilung mit dem geringsten Gesamtdefizit,
+   * bei Gleichstand die mit den wenigsten Vertretungseinsätzen.
+   * Rückgabe: { counts, violations, deputies: [{ person, role }] }
+   */
+  function staffing(day, persons, vacations) {
+    const present = persons.filter(p => !isAbsent(p.id, day, vacations));
+    const base = presentCounts(day, present, []);
+
+    // Personen mit gleicher Stelle und gleichen Vertretungsrechten sind austauschbar
+    const groups = new Map();
+    for (const p of present) {
+      const targets = (p.deputyFor || []).filter(r => r !== p.role && ROLES[r]);
+      if (!targets.length) continue;
+      const key = p.role + '>' + targets.slice().sort().join(',');
+      if (!groups.has(key)) groups.set(key, { role: p.role, targets: targets.slice().sort(), people: [] });
+      groups.get(key).people.push(p);
+    }
+    const list = [...groups.values()];
+    const choices = list.map(g => compositions(g.people.length, g.targets.length + 1));
+
+    let best = null;
+    let budget = 200000; // Schutz gegen kombinatorische Explosion bei sehr vielen Vertretern
+    (function search(i, counts, moves, picks) {
+      if (budget-- <= 0) return;
+      if (i === list.length) {
+        const v = violations(counts);
+        const d = totalDeficit(v);
+        if (!best || d < best.deficit || (d === best.deficit && moves < best.moves)) {
+          best = { deficit: d, moves, counts: Object.assign({}, counts), violations: v, picks: picks.slice() };
+        }
+        return;
+      }
+      const g = list[i];
+      for (const comp of choices[i]) {
+        // comp[0] = bleiben in eigener Stelle, comp[j] = vertreten targets[j-1]
+        const c = Object.assign({}, counts);
+        let m = moves;
+        comp.slice(1).forEach((n, j) => { c[g.role] -= n; c[g.targets[j]] += n; m += n; });
+        picks.push(comp);
+        search(i + 1, c, m, picks);
+        picks.pop();
+        if (best && best.deficit === 0 && best.moves === 0) return;
+      }
+    })(0, base, 0, []);
+
+    const deputies = [];
+    list.forEach((g, i) => {
+      let idx = best.picks[i][0];
+      best.picks[i].slice(1).forEach((n, j) => {
+        for (let k = 0; k < n; k++) deputies.push({ person: g.people[idx++], role: g.targets[j] });
+      });
+    });
+    return { counts: best.counts, violations: best.violations, deputies };
+  }
+
+  /*
    * Prüft einen Urlaubsantrag.
-   * Rückgabe: { ok, errors: [string], conflicts: [{day, messages}], workdays }
+   * Rückgabe: { ok, errors: [string], conflicts: [{day, messages}], deputies: [{day, deputies}], workdays }
    */
   function checkRequest(request, persons, vacations, settings) {
     const errors = [];
@@ -149,7 +229,8 @@
     if (!person) errors.push('Person nicht gefunden.');
     if (!request.from || !request.to) errors.push('Von- und Bis-Datum angeben.');
     else if (request.from > request.to) errors.push('Das Von-Datum liegt nach dem Bis-Datum.');
-    if (errors.length) return { ok: false, errors, conflicts: [], workdays: 0 };
+    const fail = () => ({ ok: false, errors, conflicts: [], deputies: [], workdays: 0 });
+    if (errors.length) return fail();
 
     const overlap = vacations.find(
       v => v.personId === person.id && v.from <= request.to && request.from <= v.to
@@ -159,41 +240,45 @@
         `${person.name} hat bereits Urlaub von ${deDate(overlap.from)} bis ${deDate(overlap.to)}, ` +
         'der sich mit dem Antrag überschneidet.'
       );
-      return { ok: false, errors, conflicts: [], workdays: 0 };
+      return fail();
     }
 
     const days = eachDay(request.from, request.to).filter(d => isWorkday(d, settings));
     if (days.length === 0) {
       errors.push('Im gewählten Zeitraum liegt kein Arbeitstag – es wäre kein Urlaubstag nötig.');
-      return { ok: false, errors, conflicts: [], workdays: 0 };
+      return fail();
     }
 
     const planned = vacations.concat([{ personId: person.id, from: request.from, to: request.to }]);
     const conflicts = [];
+    const deputies = [];
     for (const day of days) {
-      const before = violations(presentCounts(day, persons, vacations));
-      const after = violations(presentCounts(day, persons, planned));
-      // Nur Verstöße zählen, die durch diesen Antrag neu entstehen oder sich verschärfen.
-      const caused = after.filter(a => {
-        const b = before.find(x => x.rule === a.rule);
-        return !b || a.present < b.present || a.required > b.required;
-      });
-      if (caused.length) conflicts.push({ day, messages: caused.map(c => c.message) });
+      const before = staffing(day, persons, vacations);
+      const after = staffing(day, persons, planned);
+      // Nur Unterbesetzung zählt, die durch diesen Antrag entsteht oder sich verschärft.
+      if (totalDeficit(after.violations) > totalDeficit(before.violations)) {
+        const worse = after.violations.filter(a => {
+          const b = before.violations.find(x => x.role === a.role);
+          return !b || a.deficit > b.deficit;
+        });
+        conflicts.push({ day, messages: (worse.length ? worse : after.violations).map(c => c.message) });
+      } else if (after.deputies.length) {
+        deputies.push({ day, deputies: after.deputies });
+      }
     }
-    return { ok: conflicts.length === 0, errors, conflicts, workdays: days.length };
+    return { ok: conflicts.length === 0, errors, conflicts, deputies, workdays: days.length };
   }
 
   /*
-   * Stellen ohne Vertretung: Fehlt eine Person dieser Stelle bei sonst voller Besetzung,
-   * ist eine Regel verletzt. Diese Personen können nur Urlaub nehmen, wenn sich
-   * der Bedarf durch andere Abwesenheiten senkt (oder gar nicht).
+   * Personen ohne Vertretung: Fehlt diese Person bei sonst voller Besetzung, ist auch
+   * mit allen Vertretungen eine Regel verletzt. Urlaub geht dann nur, wenn der Bedarf
+   * durch andere Abwesenheiten sinkt (oder gar nicht).
    */
-  function rolesWithoutCover(persons) {
-    const full = presentCounts('', persons, []);
-    return ROLE_ORDER.filter(role => {
-      if (!full[role]) return false;
-      const less = Object.assign({}, full, { [role]: full[role] - 1 });
-      return violations(less).length > violations(full).length;
+  function personsWithoutCover(persons) {
+    const full = totalDeficit(staffing('', persons, []).violations);
+    return persons.filter(p => {
+      const without = persons.filter(x => x !== p);
+      return totalDeficit(staffing('', without, []).violations) > full;
     });
   }
 
@@ -213,7 +298,7 @@
     ROLES, ROLE_ORDER, RULES,
     parse, fmt, addDays, eachDay, weekday, deDate,
     easter, holidays, holidayName, isWorkday,
-    isAbsent, presentCounts, violations, checkRequest, groupConflicts, rolesWithoutCover,
+    isAbsent, presentCounts, violations, staffing, checkRequest, groupConflicts, personsWithoutCover,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Rules = api;

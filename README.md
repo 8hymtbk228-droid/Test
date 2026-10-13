@@ -22,7 +22,21 @@ einen anderen Rechner übertragen.
 Zusätzlich gilt immer die **Mindestbesetzung**: mind. 1 Serviceberater, 1 Serviceassistentin,
 1 Werkstattmeister, 1 Teilevertriebsmitarbeiter und 3 Techniker.
 
-Stellen ohne Vertretung (wo bei voller Besetzung niemand fehlen darf) werden im Personenbereich
+## Vertretungen
+
+In der Personenliste legt die Spalte **Vertritt** fest, welche Stellen eine Person bei Bedarf
+übernehmen darf (z. B. ein Techniker vertritt den Werkstattmeister). Bei der Prüfung setzt die App
+Vertretungen automatisch und nur bei Bedarf ein:
+
+- Wer vertritt, zählt an diesem Tag in der vertretenen Stelle und **fehlt in der eigenen**.
+  Es wird also nichts doppelt gezählt.
+- Die App wählt pro Tag die Aufteilung mit der geringsten Unterbesetzung und dabei möglichst
+  wenigen Vertretungseinsätzen.
+- Vertretungen werden nicht gespeichert, sondern jeden Tag neu ermittelt. Will die vertretende
+  Person später selbst Urlaub nehmen, wird geprüft, ob dann noch jemand anderes einspringen kann.
+- Im Kalender ist ein Vertretungstag mit dem Kürzel der vertretenen Stelle markiert (z. B. `WM`).
+
+Personen ohne Vertretung (wo bei voller Besetzung niemand fehlen darf) werden im Personenbereich
 gelb markiert.
 
 - Arbeitstage: Mo–Fr (Samstag optional), österreichische gesetzliche Feiertage optional frei.

@@ -24,8 +24,8 @@ test('Ostersonntag und österreichische Feiertage', () => {
 test('Verhältnisse: ceil-Berechnung', () => {
   assert.strictEqual(R.violations({ SB: 2, TECH: 6, MEISTER: 1, TEILE: 1, ASSIST: 1 }).length, 0);
   const v = R.violations({ SB: 2, TECH: 8, MEISTER: 1, TEILE: 1, ASSIST: 1 });
-  assert.deepStrictEqual(v.map(x => x.rule.role).sort(), ['MEISTER', 'SB']);
-  assert.deepStrictEqual(R.violations({ SB: 3, TECH: 9, MEISTER: 2, TEILE: 1, ASSIST: 1 }).map(x => x.rule.role), ['ASSIST']);
+  assert.deepStrictEqual(v.map(x => x.role).sort(), ['MEISTER', 'SB']);
+  assert.deepStrictEqual(R.violations({ SB: 3, TECH: 9, MEISTER: 2, TEILE: 1, ASSIST: 1 }).map(x => x.role), ['ASSIST']);
 });
 
 test('Serviceberater-Urlaub wird abgelehnt, wenn zu wenige SB bleiben', () => {
@@ -90,8 +90,53 @@ test('Mindestbesetzung: letzter Werkstattmeister/Teilevertrieb/Assistentin/SB da
   }
 });
 
-test('Stellen ohne Vertretung werden erkannt', () => {
+test('Personen ohne Vertretung werden erkannt', () => {
   const persons = team({ sb: 2, tech: 6, meister: 2, teile: 1, assist: 1 });
   // SB: 6 TE brauchen 2 SB; TECH: 5 TE bleibt über Minimum; MEISTER: 2 vorhanden, 1 nötig
-  assert.deepStrictEqual(R.rolesWithoutCover(persons), ['SB', 'ASSIST', 'TEILE']);
+  assert.deepStrictEqual(R.personsWithoutCover(persons).map(p => p.id), ['SB0', 'SB1', 'TEILE0', 'ASSIST0']);
+});
+
+test('Vertretung: Techniker vertritt Werkstattmeister', () => {
+  const persons = team({ sb: 2, tech: 5, meister: 1, teile: 1, assist: 1 });
+  const req = { personId: 'MEISTER0', from: '2026-11-02', to: '2026-11-03' };
+  assert.strictEqual(R.checkRequest(req, persons, [], settings).ok, false);
+
+  persons.find(p => p.id === 'TECH0').deputyFor = ['MEISTER'];
+  const res = R.checkRequest(req, persons, [], settings);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.deputies.length, 2);
+  assert.strictEqual(res.deputies[0].deputies[0].person.id, 'TECH0');
+  assert.strictEqual(res.deputies[0].deputies[0].role, 'MEISTER');
+  assert.deepStrictEqual(R.personsWithoutCover(persons).map(p => p.id).includes('MEISTER0'), false);
+});
+
+test('Vertretung zählt nicht doppelt: vertretender Techniker fehlt bei den Technikern', () => {
+  // 3 TE = Mindestbesetzung; wenn TECH0 den Meister vertritt, bleiben nur 2 TE
+  const persons = team({ sb: 1, tech: 3, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').deputyFor = ['MEISTER'];
+  const res = R.checkRequest({ personId: 'MEISTER0', from: '2026-11-02', to: '2026-11-02' }, persons, [], settings);
+  assert.strictEqual(res.ok, false);
+  // Entweder fehlt der Meister oder (mit Vertretung) ein Techniker – beides ist Unterbesetzung
+  assert.match(res.conflicts[0].messages.join(), /Werkstattmeister: 0 anwesend|Techniker: 2 anwesend, 3 nötig/);
+});
+
+test('Vertreter im Urlaub: Vertretung entfällt, Antrag des Vertreters wird abgelehnt', () => {
+  const persons = team({ sb: 2, tech: 5, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').deputyFor = ['MEISTER'];
+  const vac = [{ personId: 'MEISTER0', from: '2026-11-02', to: '2026-11-06' }];
+  const res = R.checkRequest({ personId: 'TECH0', from: '2026-11-05', to: '2026-11-05' }, persons, vac, settings);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.conflicts[0].messages.join(), /Werkstattmeister: 0 anwesend, 1 nötig/);
+});
+
+test('Vertretungen werden nur bei Bedarf eingesetzt', () => {
+  const persons = team({ sb: 2, tech: 6, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').deputyFor = ['MEISTER', 'TEILE'];
+  assert.deepStrictEqual(R.staffing('2026-11-02', persons, []).deputies, []);
+});
+
+test('Mehrere Regeln für dieselbe Stelle ergeben eine Meldung', () => {
+  const v = R.violations({ SB: 2, TECH: 6, MEISTER: 0, TEILE: 1, ASSIST: 1 });
+  assert.strictEqual(v.length, 1);
+  assert.match(v[0].message, /Werkstattmeister: 0 anwesend, 1 nötig \(.*max\. 7.* bzw\. Mindestbesetzung/);
 });

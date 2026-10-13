@@ -41,19 +41,21 @@
     $('stats').innerHTML = R.ROLE_ORDER.map(r =>
       `<div class="stat" style="border-color:${R.ROLES[r].color}">${R.ROLES[r].label}: <b>${counts[r]}</b></div>`).join('');
 
-    const v = R.violations(counts);
+    const v = R.staffing('', state.persons, []).violations;
     $('baseCheck').innerHTML = !state.persons.length ? '' : v.length
       ? `<div class="msg bad"><b>Grundbesetzung verletzt die Regeln schon ohne Urlaub:</b><ul>${v.map(x => `<li>${esc(x.message)}</li>`).join('')}</ul></div>`
       : '<div class="msg ok">Grundbesetzung erfüllt alle Regeln.</div>';
-    const noCover = state.persons.length && !v.length ? R.rolesWithoutCover(state.persons) : [];
+    const noCover = state.persons.length && !v.length ? R.personsWithoutCover(sortedPersons()) : [];
     if (noCover.length) {
-      $('baseCheck').innerHTML += `<div class="msg warn"><b>Keine Vertretung:</b> Bei voller Besetzung darf von diesen Stellen niemand fehlen – Urlaub geht nur, wenn gleichzeitig der Bedarf sinkt (z. B. Techniker auf Urlaub), sonst gar nicht:<ul>${noCover.map(r => `<li>${R.ROLES[r].label}</li>`).join('')}</ul></div>`;
+      $('baseCheck').innerHTML += `<div class="msg warn"><b>Ohne Vertretung:</b> Fehlt eine dieser Personen bei sonst voller Besetzung, ist die Besetzung unterschritten. Urlaub geht nur, wenn gleichzeitig der Bedarf sinkt (z. B. Techniker auf Urlaub) – sonst unten bei „Vertritt“ eine Vertretung festlegen:<ul>${noCover.map(p => `<li>${esc(p.name)} (${R.ROLES[p.role].label})</li>`).join('')}</ul></div>`;
     }
 
     const list = sortedPersons();
     $('tblPersons').innerHTML = list.length
-      ? '<tr><th>Name</th><th>Stelle</th><th></th></tr>' + list.map(p =>
+      ? '<tr><th>Name</th><th>Stelle</th><th title="Stellen, die diese Person bei Bedarf vertreten darf">Vertritt</th><th></th></tr>' + list.map(p =>
         `<tr><td>${esc(p.name)}</td><td>${chip(p.role)}</td>
+         <td class="deps">${R.ROLE_ORDER.filter(r => r !== p.role).map(r =>
+           `<label title="${esc(p.name)} darf ${R.ROLES[r].label} vertreten"><input type="checkbox" data-deputy="${p.id}" value="${r}" ${(p.deputyFor || []).includes(r) ? 'checked' : ''}><span style="color:${R.ROLES[r].color}">${R.ROLES[r].short}</span></label>`).join('')}</td>
          <td><button class="del" data-del-person="${p.id}" title="Person löschen">✕</button></td></tr>`).join('')
       : '<tr><td class="empty">Noch keine Personen erfasst.</td></tr>';
 
@@ -68,9 +70,19 @@
     e.preventDefault();
     const name = $('pName').value.trim();
     if (!name) return;
-    state.persons.push({ id: uid(), name, role: $('pRole').value });
+    state.persons.push({ id: uid(), name, role: $('pRole').value, deputyFor: [] });
     $('pName').value = '';
     $('pName').focus();
+    save(); renderAll();
+  });
+
+  $('tblPersons').addEventListener('change', e => {
+    const id = e.target.dataset.deputy;
+    if (!id) return;
+    const p = personById(id);
+    const set = new Set(p.deputyFor || []);
+    if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
+    p.deputyFor = R.ROLE_ORDER.filter(r => set.has(r));
     save(); renderAll();
   });
 
@@ -95,7 +107,15 @@
     if (res.ok) {
       state.vacations.push(Object.assign({ id: uid() }, req));
       save();
-      $('result').innerHTML = `<div class="msg ok">✔ Urlaub für <b>${esc(p.name)}</b> von ${R.deDate(req.from)} bis ${R.deDate(req.to)} eingetragen (${res.workdays} Arbeitstag${res.workdays === 1 ? '' : 'e'}).</div>`;
+      let html = `<div class="msg ok">✔ Urlaub für <b>${esc(p.name)}</b> von ${R.deDate(req.from)} bis ${R.deDate(req.to)} eingetragen (${res.workdays} Arbeitstag${res.workdays === 1 ? '' : 'e'}).`;
+      const deps = R.groupConflicts(res.deputies.map(d => ({
+        day: d.day, messages: d.deputies.map(x => `${x.person.name} vertritt ${R.ROLES[x.role].label}`),
+      })));
+      if (deps.length) {
+        html += '<div style="margin-top:6px">Möglich nur mit Vertretung:</div><ul>' + deps.map(g =>
+          `<li><b>${g.from === g.to ? R.deDate(g.from) : `${R.deDate(g.from)} – ${R.deDate(g.to)}`}</b>: ${g.messages.map(esc).join('; ')}</li>`).join('') + '</ul>';
+      }
+      $('result').innerHTML = html + '</div>';
       view = { year: Number(req.from.slice(0, 4)), month: Number(req.from.slice(5, 7)) - 1 };
       renderAll();
       return;
@@ -150,8 +170,10 @@
     const dayInfo = days.map(d => {
       const work = R.isWorkday(d, state.settings);
       const hol = R.holidayName(d);
-      const counts = R.presentCounts(d, state.persons, state.vacations);
-      return { d, work, hol, counts, viol: work ? R.violations(counts) : [] };
+      const st = R.staffing(d, state.persons, state.vacations);
+      const deputy = {};
+      for (const x of st.deputies) deputy[x.person.id] = x.role;
+      return { d, work, hol, counts: st.counts, deputy, viol: work ? st.violations : [] };
     });
 
     let html = '<thead><tr><th class="name">Mitarbeiter</th>';
@@ -177,6 +199,10 @@
         const absent = R.isAbsent(p.id, i.d, state.vacations);
         if (absent && i.work) html += `<td class="vac" style="background:${color}" title="${esc(p.name)}: Urlaub ${R.deDate(i.d)}">U</td>`;
         else if (absent) html += `<td class="off" style="background:${color}55"></td>`;
+        else if (i.work && i.deputy[p.id]) {
+          const r = R.ROLES[i.deputy[p.id]];
+          html += `<td class="dep" style="color:${r.color};border-color:${r.color}" title="${esc(p.name)} vertritt ${r.label}">${r.short}</td>`;
+        }
         else html += `<td class="${i.work ? '' : 'off'}"></td>`;
       }
       html += '</tr>';
@@ -190,7 +216,7 @@
         html += `<tr><td class="name" style="border-left-color:${R.ROLES[r].color}">${R.ROLES[r].label}</td>`;
         for (const i of dayInfo) {
           if (!i.work) { html += '<td class="off"></td>'; continue; }
-          const bad = i.viol.some(v => v.rule.role === r);
+          const bad = i.viol.some(v => v.role === r);
           html += `<td class="${bad ? 'badc' : ''}">${i.counts[r]}</td>`;
         }
         html += '</tr>';
@@ -256,9 +282,12 @@
   // ---------- Start ----------
   $('pRole').innerHTML = R.ROLE_ORDER.map(r => `<option value="${r}">${R.ROLES[r].label}</option>`).join('');
   $('rulesList').innerHTML = R.RULES.map(r => `<li>${r.text}</li>`).join('') +
-    '<li>Geprüft wird jeder Arbeitstag im Zeitraum anhand der dann anwesenden Personen.</li>';
+    '<li>Geprüft wird jeder Arbeitstag im Zeitraum anhand der dann anwesenden Personen.</li>' +
+    '<li>Vertretungen (Spalte „Vertritt“ bei den Personen) werden automatisch eingesetzt, wenn nötig. ' +
+    'Wer vertritt, fehlt an diesem Tag in seiner eigenen Stelle.</li>';
   $('legend').innerHTML = R.ROLE_ORDER.map(chip).join('') +
-    '<span class="chip" style="background:#9ca3af">Wochenende/Feiertag</span>';
+    '<span class="chip" style="background:#9ca3af">Wochenende/Feiertag</span>' +
+    '<span class="chip" style="background:#fff;color:#374151;box-shadow:inset 0 0 0 2px #374151">WM = vertritt Stelle</span>';
 
   function renderAll() {
     renderPersons();
