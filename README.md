@@ -1,0 +1,32 @@
+# Werkstatt Urlaubsplanung
+
+Browser-App zur Urlaubsplanung einer Werkstatt. Jeder Urlaubsantrag wird automatisch gegen die
+Mindestbesetzung geprüft und nur eingetragen, wenn an **jedem Arbeitstag** des Zeitraums die
+Stellenverhältnisse eingehalten bleiben. Andernfalls zeigt die App Tage und Grund an.
+
+## Starten
+
+`index.html` im Browser öffnen – keine Installation, kein Server nötig.
+Die Daten liegen im `localStorage` des Browsers; mit **Export/Import** (JSON) sichern oder auf
+einen anderen Rechner übertragen.
+
+## Regeln (geprüft je Arbeitstag, anhand der dann anwesenden Personen)
+
+| Regel | Bedeutung |
+|---|---|
+| 1 Serviceberater je 3 Techniker | Serviceberater ≥ ⌈Techniker / 3⌉ |
+| max. 7 Techniker je Werkstattmeister | Werkstattmeister ≥ ⌈Techniker / 7⌉ |
+| max. 10 Techniker je Teilevertrieb | Teilevertrieb ≥ ⌈Techniker / 10⌉ |
+| 1 Serviceassistentin je 2 Serviceberater | Serviceassistentin ≥ ⌈Serviceberater / 2⌉ |
+
+- Arbeitstage: Mo–Fr (Samstag optional), österreichische gesetzliche Feiertage optional frei.
+- Ist die Grundbesetzung schon ohne Urlaub unterbesetzt, blockiert das nur Anträge, die die
+  Lage verschärfen – nicht unbeteiligte Stellen.
+
+## Aufbau
+
+- `rules.js` – Fachlogik (Regeln, Feiertage, Prüfung), auch in Node nutzbar
+- `app.js` – Oberfläche (Personen, Antrag, Monatskalender)
+- `test/` – Tests: `node --test test/*.test.js`
+
+![Screenshot](docs/screenshot.png)
