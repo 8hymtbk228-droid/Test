@@ -172,3 +172,19 @@ test('Zusatzqualifikation: Prüfer, der den Meister vertritt, zählt weiter als 
   const res = R.checkRequest({ personId: 'MEISTER0', from: '2026-11-02', to: '2026-11-02' }, persons, [], qset);
   assert.strictEqual(res.ok, true);
 });
+
+test('Standard: mind. 1 §57a-Prüfer und 1 Diplomservicetechniker', () => {
+  assert.deepStrictEqual(R.DEFAULT_QUAL_MIN, { P57A: 1, DST: 1 });
+  const persons = team({ sb: 2, tech: 6, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').quals = ['P57A'];
+  persons.find(p => p.id === 'TECH1').quals = ['DST'];
+  persons.find(p => p.id === 'TECH2').quals = ['P57A', 'DST'];
+  const s = Object.assign({}, settings, { qualMin: R.DEFAULT_QUAL_MIN });
+  // TECH0 weg: TECH2 deckt 57a ab
+  assert.strictEqual(R.checkRequest({ personId: 'TECH0', from: '2026-11-02', to: '2026-11-02' }, persons, [], s).ok, true);
+  // TECH1 und TECH2 gleichzeitig weg: kein Diplomservicetechniker mehr
+  const vac = [{ personId: 'TECH1', from: '2026-11-02', to: '2026-11-02' }];
+  const res = R.checkRequest({ personId: 'TECH2', from: '2026-11-02', to: '2026-11-02' }, persons, vac, s);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.conflicts[0].messages.join(), /Diplomservicetechniker: 0 anwesend, 1 nötig/);
+});

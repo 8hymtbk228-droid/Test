@@ -20,7 +20,7 @@
     DST:  { label: 'Diplomservicetechniker', short: 'DST', color: '#4d7c0f' },
   };
   const QUAL_ORDER = ['P57A', 'DST'];
-  const DEFAULT_QUAL_MIN = { P57A: 1, DST: 0 };
+  const DEFAULT_QUAL_MIN = { P57A: 1, DST: 1 };
 
   // Verhältnisregeln: "need" Personen der Rolle pro "per" anwesende Personen der Basisrolle.
   const RULES = [

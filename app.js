@@ -13,8 +13,11 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const today = R.fmt(new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())));
 
+  // Version 2: Mindestanzahl Diplomservicetechniker ist 1 – ältere gespeicherte Werte (0) werden ersetzt
+  const SETTINGS_VERSION = 2;
   const normSettings = s => Object.assign({ saturday: false, holidays: true }, s, {
-    qualMin: Object.assign({}, R.DEFAULT_QUAL_MIN, s && s.qualMin),
+    version: SETTINGS_VERSION,
+    qualMin: Object.assign({}, R.DEFAULT_QUAL_MIN, s && s.version === SETTINGS_VERSION ? s.qualMin : null),
   });
 
   let state = load();
