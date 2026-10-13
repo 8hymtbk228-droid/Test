@@ -19,6 +19,12 @@ einen anderen Rechner übertragen.
 | max. 10 Techniker je Teilevertrieb | Teilevertrieb ≥ ⌈Techniker / 10⌉ |
 | 1 Serviceassistentin je 2 Serviceberater | Serviceassistentin ≥ ⌈Serviceberater / 2⌉ |
 
+Zusätzlich gilt immer die **Mindestbesetzung**: mind. 1 Serviceberater, 1 Serviceassistentin,
+1 Werkstattmeister, 1 Teilevertriebsmitarbeiter und 3 Techniker.
+
+Stellen ohne Vertretung (wo bei voller Besetzung niemand fehlen darf) werden im Personenbereich
+gelb markiert.
+
 - Arbeitstage: Mo–Fr (Samstag optional), österreichische gesetzliche Feiertage optional frei.
 - Ist die Grundbesetzung schon ohne Urlaub unterbesetzt, blockiert das nur Anträge, die die
   Lage verschärfen – nicht unbeteiligte Stellen.

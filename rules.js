@@ -20,6 +20,12 @@
     { role: 'MEISTER', base: 'TECH', per: 7,  text: 'max. 7 Techniker je Werkstattmeister' },
     { role: 'TEILE',   base: 'TECH', per: 10, text: 'max. 10 Techniker je Teilevertriebsmitarbeiter' },
     { role: 'ASSIST',  base: 'SB',   per: 2,  text: '1 Serviceassistentin je 2 Serviceberater' },
+    // Mindestbesetzung je Stelle, unabhängig von den Verhältnissen
+    { role: 'SB',      min: 1, text: 'mind. 1 Serviceberater anwesend' },
+    { role: 'ASSIST',  min: 1, text: 'mind. 1 Serviceassistentin anwesend' },
+    { role: 'MEISTER', min: 1, text: 'mind. 1 Werkstattmeister anwesend' },
+    { role: 'TEILE',   min: 1, text: 'mind. 1 Teilevertriebsmitarbeiter anwesend' },
+    { role: 'TECH',    min: 3, text: 'mind. 3 Techniker anwesend' },
   ];
 
   // ---------- Datumshilfen (alles in UTC, Format YYYY-MM-DD) ----------
@@ -117,16 +123,16 @@
   function violations(counts) {
     const out = [];
     for (const r of RULES) {
-      const required = Math.ceil(counts[r.base] / r.per);
+      const required = r.min !== undefined ? r.min : Math.ceil(counts[r.base] / r.per);
       if (counts[r.role] < required) {
+        const why = r.min !== undefined
+          ? `Mindestbesetzung: ${r.text}`
+          : `${counts[r.base]} ${ROLES[r.base].label} anwesend; Regel: ${r.text}`;
         out.push({
           rule: r,
           required,
           present: counts[r.role],
-          base: counts[r.base],
-          message:
-            `${ROLES[r.role].label}: ${counts[r.role]} anwesend, ${required} nötig ` +
-            `(${counts[r.base]} ${ROLES[r.base].label} anwesend; Regel: ${r.text})`,
+          message: `${ROLES[r.role].label}: ${counts[r.role]} anwesend, ${required} nötig (${why})`,
         });
       }
     }
@@ -177,6 +183,20 @@
     return { ok: conflicts.length === 0, errors, conflicts, workdays: days.length };
   }
 
+  /*
+   * Stellen ohne Vertretung: Fehlt eine Person dieser Stelle bei sonst voller Besetzung,
+   * ist eine Regel verletzt. Diese Personen können nur Urlaub nehmen, wenn sich
+   * der Bedarf durch andere Abwesenheiten senkt (oder gar nicht).
+   */
+  function rolesWithoutCover(persons) {
+    const full = presentCounts('', persons, []);
+    return ROLE_ORDER.filter(role => {
+      if (!full[role]) return false;
+      const less = Object.assign({}, full, { [role]: full[role] - 1 });
+      return violations(less).length > violations(full).length;
+    });
+  }
+
   // Fasst aufeinanderfolgende Konflikttage mit gleicher Meldung zu Zeiträumen zusammen
   function groupConflicts(conflicts) {
     const groups = [];
@@ -193,7 +213,7 @@
     ROLES, ROLE_ORDER, RULES,
     parse, fmt, addDays, eachDay, weekday, deDate,
     easter, holidays, holidayName, isWorkday,
-    isAbsent, presentCounts, violations, checkRequest, groupConflicts,
+    isAbsent, presentCounts, violations, checkRequest, groupConflicts, rolesWithoutCover,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Rules = api;

@@ -43,8 +43,12 @@
 
     const v = R.violations(counts);
     $('baseCheck').innerHTML = !state.persons.length ? '' : v.length
-      ? `<div class="msg bad"><b>Grundbesetzung verletzt die Verhältnisse schon ohne Urlaub:</b><ul>${v.map(x => `<li>${esc(x.message)}</li>`).join('')}</ul></div>`
-      : '<div class="msg ok">Grundbesetzung erfüllt alle Verhältnisse.</div>';
+      ? `<div class="msg bad"><b>Grundbesetzung verletzt die Regeln schon ohne Urlaub:</b><ul>${v.map(x => `<li>${esc(x.message)}</li>`).join('')}</ul></div>`
+      : '<div class="msg ok">Grundbesetzung erfüllt alle Regeln.</div>';
+    const noCover = state.persons.length && !v.length ? R.rolesWithoutCover(state.persons) : [];
+    if (noCover.length) {
+      $('baseCheck').innerHTML += `<div class="msg warn"><b>Keine Vertretung:</b> Bei voller Besetzung darf von diesen Stellen niemand fehlen – Urlaub geht nur, wenn gleichzeitig der Bedarf sinkt (z. B. Techniker auf Urlaub), sonst gar nicht:<ul>${noCover.map(r => `<li>${R.ROLES[r].label}</li>`).join('')}</ul></div>`;
+    }
 
     const list = sortedPersons();
     $('tblPersons').innerHTML = list.length
@@ -192,10 +196,10 @@
         html += '</tr>';
       }
       // Gesamtstatus
-      html += '<tr class="sum"><td class="name">Status Verhältnisse</td>';
+      html += '<tr class="sum"><td class="name">Status Besetzung</td>';
       for (const i of dayInfo) {
         if (!i.work) { html += `<td class="off" title="${esc(i.hol || 'kein Arbeitstag')}"></td>`; continue; }
-        const tip = i.viol.length ? i.viol.map(v => v.message).join('\n') : 'Alle Verhältnisse erfüllt';
+        const tip = i.viol.length ? i.viol.map(v => v.message).join('\n') : 'Alle Regeln erfüllt';
         html += `<td class="${i.viol.length ? 'badc' : 'okc'}" title="${esc(tip)}">${i.viol.length ? '✘' : '✔'}</td>`;
       }
       html += '</tr>';

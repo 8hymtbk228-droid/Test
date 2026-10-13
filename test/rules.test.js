@@ -72,3 +72,26 @@ test('Bestehende Unterbesetzung blockiert nicht unbeteiligte Stellen', () => {
   const res = R.checkRequest({ personId: 'TEILE0', from: '2026-11-02', to: '2026-11-03' }, persons, [], settings);
   assert.strictEqual(res.ok, true);
 });
+
+test('Mindestbesetzung: 3 Techniker müssen bleiben', () => {
+  const persons = team({ sb: 2, tech: 3, meister: 1, teile: 1, assist: 1 });
+  const res = R.checkRequest({ personId: 'TECH0', from: '2026-11-02', to: '2026-11-02' }, persons, [], settings);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.conflicts[0].messages[0], /Techniker: 2 anwesend, 3 nötig \(Mindestbesetzung/);
+});
+
+test('Mindestbesetzung: letzter Werkstattmeister/Teilevertrieb/Assistentin/SB darf nicht fehlen', () => {
+  // Wenige Techniker -> Verhältnisse verlangen nichts, nur die Mindestbesetzung greift
+  const persons = team({ sb: 1, tech: 3, meister: 1, teile: 1, assist: 1 });
+  for (const id of ['MEISTER0', 'TEILE0', 'ASSIST0', 'SB0']) {
+    const res = R.checkRequest({ personId: id, from: '2026-11-02', to: '2026-11-02' }, persons, [], settings);
+    assert.strictEqual(res.ok, false, id);
+    assert.match(res.conflicts[0].messages.join(), /Mindestbesetzung/, id);
+  }
+});
+
+test('Stellen ohne Vertretung werden erkannt', () => {
+  const persons = team({ sb: 2, tech: 6, meister: 2, teile: 1, assist: 1 });
+  // SB: 6 TE brauchen 2 SB; TECH: 5 TE bleibt über Minimum; MEISTER: 2 vorhanden, 1 nötig
+  assert.deepStrictEqual(R.rolesWithoutCover(persons), ['SB', 'ASSIST', 'TEILE']);
+});
