@@ -14,7 +14,7 @@ einen anderen Rechner übertragen.
 
 | Regel | Bedeutung |
 |---|---|
-| 1 Serviceberater je 3 Techniker | Serviceberater ≥ ⌈Techniker / 3⌉ |
+| 1 Serviceberater je 3 Techniker | Serviceberater ≥ ⌈Techniker / 3⌉ (aufgerundet: ab 4 Technikern 2 SB) |
 | max. 7 Techniker je Werkstattmeister | Werkstattmeister ≥ ⌈Techniker / 7⌉ |
 | max. 10 Techniker je Teilevertrieb | Teilevertrieb ≥ ⌈Techniker / 10⌉ |
 | 1 Serviceassistentin je 2 Serviceberater | Serviceassistentin ≥ ⌈Serviceberater / 2⌉ |
@@ -27,6 +27,7 @@ Zusätzlich gilt immer die **Mindestbesetzung**: mind. 1 Serviceberater, 1 Servi
 Techniker können in der Spalte **Zusatz** als **§57a-Prüfer** und/oder **Diplomservicetechniker**
 markiert werden. Wie viele davon an jedem Arbeitstag mindestens anwesend sein müssen, wird oben im
 Personenbereich eingestellt (Standard: mind. 1 §57a-Prüfer und 1 Diplomservicetechniker).
+Eine Person mit beiden Qualifikationen erfüllt beide Mindestwerte allein.
 Gezählt werden alle anwesenden Techniker mit der Qualifikation – auch wenn sie an dem Tag eine andere
 Stelle vertreten. Im Kalender stehen die Qualifikationen als Kürzel beim Namen und als eigene Zeilen
 unter „Anwesend“.

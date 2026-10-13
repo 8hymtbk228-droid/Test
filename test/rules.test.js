@@ -188,3 +188,10 @@ test('Standard: mind. 1 §57a-Prüfer und 1 Diplomservicetechniker', () => {
   assert.strictEqual(res.ok, false);
   assert.match(res.conflicts[0].messages.join(), /Diplomservicetechniker: 0 anwesend, 1 nötig/);
 });
+
+test('Bestätigt: eine Person mit 57a und DST erfüllt beide Mindestwerte allein', () => {
+  const persons = team({ sb: 2, tech: 6, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').quals = ['P57A', 'DST'];
+  const st = R.staffing('2026-11-02', persons, [], R.DEFAULT_QUAL_MIN);
+  assert.deepStrictEqual(st.violations, []);
+});
