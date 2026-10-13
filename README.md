@@ -22,6 +22,15 @@ einen anderen Rechner übertragen.
 Zusätzlich gilt immer die **Mindestbesetzung**: mind. 1 Serviceberater, 1 Serviceassistentin,
 1 Werkstattmeister, 1 Teilevertriebsmitarbeiter und 3 Techniker.
 
+## Zusatzqualifikationen der Techniker
+
+Techniker können in der Spalte **Zusatz** als **§57a-Prüfer** und/oder **Diplomservicetechniker**
+markiert werden. Wie viele davon an jedem Arbeitstag mindestens anwesend sein müssen, wird oben im
+Personenbereich eingestellt (Standard: 1 §57a-Prüfer, 0 Diplomservicetechniker = keine Prüfung).
+Gezählt werden alle anwesenden Techniker mit der Qualifikation – auch wenn sie an dem Tag eine andere
+Stelle vertreten. Im Kalender stehen die Qualifikationen als Kürzel beim Namen und als eigene Zeilen
+unter „Anwesend“.
+
 ## Vertretungen
 
 In der Personenliste legt die Spalte **Vertritt** fest, welche Stellen eine Person bei Bedarf

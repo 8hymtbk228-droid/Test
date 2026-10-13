@@ -140,3 +140,35 @@ test('Mehrere Regeln für dieselbe Stelle ergeben eine Meldung', () => {
   assert.strictEqual(v.length, 1);
   assert.match(v[0].message, /Werkstattmeister: 0 anwesend, 1 nötig \(.*max\. 7.* bzw\. Mindestbesetzung/);
 });
+
+const qset = Object.assign({}, settings, { qualMin: { P57A: 1, DST: 0 } });
+
+test('Zusatzqualifikation: letzter §57a-Prüfer darf nicht fehlen', () => {
+  const persons = team({ sb: 2, tech: 6, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').quals = ['P57A'];
+  const res = R.checkRequest({ personId: 'TECH0', from: '2026-11-02', to: '2026-11-02' }, persons, [], qset);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.conflicts[0].messages.join(), /§57a-Prüfer: 0 anwesend, 1 nötig/);
+
+  // Mit zweitem Prüfer klappt es
+  persons.find(p => p.id === 'TECH1').quals = ['P57A', 'DST'];
+  assert.strictEqual(R.checkRequest({ personId: 'TECH0', from: '2026-11-02', to: '2026-11-02' }, persons, [], qset).ok, true);
+});
+
+test('Zusatzqualifikation: Mindestanzahl 0 prüft nichts, Qualifikation nur bei Technikern', () => {
+  const persons = team({ sb: 2, tech: 6, meister: 1, teile: 1, assist: 1 });
+  persons.find(p => p.id === 'TECH0').quals = ['DST'];
+  persons.find(p => p.id === 'MEISTER0').quals = ['P57A']; // ignoriert: kein Techniker
+  // DST-Mindestanzahl 0 -> erlaubt; fehlender §57a-Prüfer besteht schon vorher und wird nicht verschärft
+  assert.strictEqual(R.checkRequest({ personId: 'TECH0', from: '2026-11-02', to: '2026-11-02' }, persons, [], qset).ok, true);
+  const st = R.staffing('2026-11-02', persons, [], qset.qualMin);
+  assert.deepStrictEqual(st.quals, { P57A: 0, DST: 1 });
+});
+
+test('Zusatzqualifikation: Prüfer, der den Meister vertritt, zählt weiter als Prüfer', () => {
+  const persons = team({ sb: 2, tech: 5, meister: 1, teile: 1, assist: 1 });
+  const t = persons.find(p => p.id === 'TECH0');
+  t.quals = ['P57A']; t.deputyFor = ['MEISTER'];
+  const res = R.checkRequest({ personId: 'MEISTER0', from: '2026-11-02', to: '2026-11-02' }, persons, [], qset);
+  assert.strictEqual(res.ok, true);
+});

@@ -14,6 +14,14 @@
   };
   const ROLE_ORDER = ['MEISTER', 'SB', 'ASSIST', 'TECH', 'TEILE'];
 
+  // Zusatzqualifikationen der Techniker; Mindestanzahl je Arbeitstag ist einstellbar
+  const QUALS = {
+    P57A: { label: '§57a-Prüfer',            short: '57a', color: '#0891b2' },
+    DST:  { label: 'Diplomservicetechniker', short: 'DST', color: '#4d7c0f' },
+  };
+  const QUAL_ORDER = ['P57A', 'DST'];
+  const DEFAULT_QUAL_MIN = { P57A: 1, DST: 0 };
+
   // Verhältnisregeln: "need" Personen der Rolle pro "per" anwesende Personen der Basisrolle.
   const RULES = [
     { role: 'SB',      base: 'TECH', per: 3,  text: '1 Serviceberater je 3 Techniker' },
@@ -142,6 +150,7 @@
       const v = byRole[role];
       return {
         rule: v.rule,
+        key: role,
         role,
         required: v.required,
         present: counts[role],
@@ -151,6 +160,37 @@
     });
   }
   const totalDeficit = v => v.reduce((sum, x) => sum + x.deficit, 0);
+
+  const hasQual = (p, q) => p.role === 'TECH' && (p.quals || []).includes(q);
+
+  /*
+   * Mindestanzahl je Zusatzqualifikation. Gezählt werden alle anwesenden Techniker mit der
+   * Qualifikation – auch wenn sie an dem Tag eine andere Stelle vertreten (sie sind im Haus).
+   */
+  function qualViolations(present, qualMin) {
+    const out = [];
+    for (const q of QUAL_ORDER) {
+      const required = (qualMin && qualMin[q]) || 0;
+      const n = present.filter(p => hasQual(p, q)).length;
+      if (n < required) {
+        out.push({
+          key: 'Q:' + q,
+          role: 'TECH',
+          qual: q,
+          required,
+          present: n,
+          deficit: required - n,
+          message: `${QUALS[q].label}: ${n} anwesend, ${required} nötig (Mindestbesetzung Zusatzqualifikation)`,
+        });
+      }
+    }
+    return out;
+  }
+  function qualCounts(present) {
+    const out = {};
+    for (const q of QUAL_ORDER) out[q] = present.filter(p => hasQual(p, q)).length;
+    return out;
+  }
 
   // Alle Aufteilungen von n gleichartigen Personen auf k Optionen
   function compositions(n, k) {
@@ -166,9 +206,10 @@
    * Vertretung – in genau einer der Stellen, die sie vertreten darf (dann fehlt sie
    * in ihrer eigenen). Gewählt wird die Aufteilung mit dem geringsten Gesamtdefizit,
    * bei Gleichstand die mit den wenigsten Vertretungseinsätzen.
-   * Rückgabe: { counts, violations, deputies: [{ person, role }] }
+   * Zusätzlich wird die Mindestanzahl je Zusatzqualifikation (qualMin) geprüft.
+   * Rückgabe: { counts, quals, violations, deputies: [{ person, role }] }
    */
-  function staffing(day, persons, vacations) {
+  function staffing(day, persons, vacations, qualMin) {
     const present = persons.filter(p => !isAbsent(p.id, day, vacations));
     const base = presentCounts(day, present, []);
 
@@ -216,7 +257,12 @@
         for (let k = 0; k < n; k++) deputies.push({ person: g.people[idx++], role: g.targets[j] });
       });
     });
-    return { counts: best.counts, violations: best.violations, deputies };
+    return {
+      counts: best.counts,
+      quals: qualCounts(present),
+      violations: best.violations.concat(qualViolations(present, qualMin)),
+      deputies,
+    };
   }
 
   /*
@@ -253,12 +299,12 @@
     const conflicts = [];
     const deputies = [];
     for (const day of days) {
-      const before = staffing(day, persons, vacations);
-      const after = staffing(day, persons, planned);
+      const before = staffing(day, persons, vacations, settings.qualMin);
+      const after = staffing(day, persons, planned, settings.qualMin);
       // Nur Unterbesetzung zählt, die durch diesen Antrag entsteht oder sich verschärft.
       if (totalDeficit(after.violations) > totalDeficit(before.violations)) {
         const worse = after.violations.filter(a => {
-          const b = before.violations.find(x => x.role === a.role);
+          const b = before.violations.find(x => x.key === a.key);
           return !b || a.deficit > b.deficit;
         });
         conflicts.push({ day, messages: (worse.length ? worse : after.violations).map(c => c.message) });
@@ -274,11 +320,11 @@
    * mit allen Vertretungen eine Regel verletzt. Urlaub geht dann nur, wenn der Bedarf
    * durch andere Abwesenheiten sinkt (oder gar nicht).
    */
-  function personsWithoutCover(persons) {
-    const full = totalDeficit(staffing('', persons, []).violations);
+  function personsWithoutCover(persons, qualMin) {
+    const full = totalDeficit(staffing('', persons, [], qualMin).violations);
     return persons.filter(p => {
       const without = persons.filter(x => x !== p);
-      return totalDeficit(staffing('', without, []).violations) > full;
+      return totalDeficit(staffing('', without, [], qualMin).violations) > full;
     });
   }
 
@@ -295,7 +341,7 @@
   }
 
   const api = {
-    ROLES, ROLE_ORDER, RULES,
+    ROLES, ROLE_ORDER, RULES, QUALS, QUAL_ORDER, DEFAULT_QUAL_MIN, hasQual,
     parse, fmt, addDays, eachDay, weekday, deDate,
     easter, holidays, holidayName, isWorkday,
     isAbsent, presentCounts, violations, staffing, checkRequest, groupConflicts, personsWithoutCover,

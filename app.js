@@ -13,6 +13,10 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const today = R.fmt(new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())));
 
+  const normSettings = s => Object.assign({ saturday: false, holidays: true }, s, {
+    qualMin: Object.assign({}, R.DEFAULT_QUAL_MIN, s && s.qualMin),
+  });
+
   let state = load();
   let view = { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) - 1 };
 
@@ -20,16 +24,18 @@
     try {
       const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
       if (s && Array.isArray(s.persons) && Array.isArray(s.vacations)) {
-        s.settings = Object.assign({ saturday: false, holidays: true }, s.settings);
+        s.settings = normSettings(s.settings);
         return s;
       }
     } catch (e) { /* Speicher nicht verfügbar oder leer */ }
-    return { persons: [], vacations: [], settings: { saturday: false, holidays: true } };
+    return { persons: [], vacations: [], settings: normSettings({}) };
   }
   function save() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignorieren */ }
   }
 
+  const qualBadge = q => `<span class="qual" style="background:${R.QUALS[q].color}" title="${R.QUALS[q].label}">${R.QUALS[q].short}</span>`;
+  const qualBadges = p => R.QUAL_ORDER.filter(q => R.hasQual(p, q)).map(qualBadge).join('');
   const chip = role => `<span class="chip" style="background:${R.ROLES[role].color}">${R.ROLES[role].label}</span>`;
   const personById = id => state.persons.find(p => p.id === id);
   const sortedPersons = () => state.persons.slice().sort((a, b) =>
@@ -39,21 +45,28 @@
   function renderPersons() {
     const counts = R.presentCounts('0000-00-00', state.persons, []);
     $('stats').innerHTML = R.ROLE_ORDER.map(r =>
-      `<div class="stat" style="border-color:${R.ROLES[r].color}">${R.ROLES[r].label}: <b>${counts[r]}</b></div>`).join('');
+      `<div class="stat" style="border-color:${R.ROLES[r].color}">${R.ROLES[r].label}: <b>${counts[r]}</b></div>`).join('') +
+      R.QUAL_ORDER.map(q =>
+        `<div class="stat" style="border-color:${R.QUALS[q].color}">davon ${R.QUALS[q].label}: <b>${state.persons.filter(p => R.hasQual(p, q)).length}</b></div>`).join('');
 
-    const v = R.staffing('', state.persons, []).violations;
+    $('qualMin').innerHTML = '<span>Mindestens anwesend (Techniker mit Zusatzqualifikation):</span>' + R.QUAL_ORDER.map(q =>
+      `<label>${qualBadge(q)} ${R.QUALS[q].label} <input type="number" min="0" max="20" step="1" data-qualmin="${q}" value="${state.settings.qualMin[q]}"></label>`).join('');
+
+    const v = R.staffing('', state.persons, [], state.settings.qualMin).violations;
     $('baseCheck').innerHTML = !state.persons.length ? '' : v.length
       ? `<div class="msg bad"><b>Grundbesetzung verletzt die Regeln schon ohne Urlaub:</b><ul>${v.map(x => `<li>${esc(x.message)}</li>`).join('')}</ul></div>`
       : '<div class="msg ok">Grundbesetzung erfüllt alle Regeln.</div>';
-    const noCover = state.persons.length && !v.length ? R.personsWithoutCover(sortedPersons()) : [];
+    const noCover = state.persons.length && !v.length ? R.personsWithoutCover(sortedPersons(), state.settings.qualMin) : [];
     if (noCover.length) {
-      $('baseCheck').innerHTML += `<div class="msg warn"><b>Ohne Vertretung:</b> Fehlt eine dieser Personen bei sonst voller Besetzung, ist die Besetzung unterschritten. Urlaub geht nur, wenn gleichzeitig der Bedarf sinkt (z. B. Techniker auf Urlaub) – sonst unten bei „Vertritt“ eine Vertretung festlegen:<ul>${noCover.map(p => `<li>${esc(p.name)} (${R.ROLES[p.role].label})</li>`).join('')}</ul></div>`;
+      $('baseCheck').innerHTML += `<div class="msg warn"><b>Ohne Vertretung:</b> Fehlt eine dieser Personen bei sonst voller Besetzung, ist die Besetzung unterschritten. Urlaub geht nur, wenn gleichzeitig der Bedarf sinkt (z. B. Techniker auf Urlaub) – sonst unten bei „Vertritt“ eine Vertretung festlegen:<ul>${noCover.map(p => `<li>${esc(p.name)} (${R.ROLES[p.role].label}${R.QUAL_ORDER.filter(q => R.hasQual(p, q)).map(q => ', ' + R.QUALS[q].label).join('')})</li>`).join('')}</ul></div>`;
     }
 
     const list = sortedPersons();
     $('tblPersons').innerHTML = list.length
-      ? '<tr><th>Name</th><th>Stelle</th><th title="Stellen, die diese Person bei Bedarf vertreten darf">Vertritt</th><th></th></tr>' + list.map(p =>
+      ? '<tr><th>Name</th><th>Stelle</th><th title="Zusatzqualifikationen (nur Techniker)">Zusatz</th><th title="Stellen, die diese Person bei Bedarf vertreten darf">Vertritt</th><th></th></tr>' + list.map(p =>
         `<tr><td>${esc(p.name)}</td><td>${chip(p.role)}</td>
+         <td class="deps">${p.role !== 'TECH' ? '' : R.QUAL_ORDER.map(q =>
+           `<label title="${R.QUALS[q].label}"><input type="checkbox" data-qual="${p.id}" value="${q}" ${(p.quals || []).includes(q) ? 'checked' : ''}><span style="color:${R.QUALS[q].color}">${R.QUALS[q].short}</span></label>`).join('')}</td>
          <td class="deps">${R.ROLE_ORDER.filter(r => r !== p.role).map(r =>
            `<label title="${esc(p.name)} darf ${R.ROLES[r].label} vertreten"><input type="checkbox" data-deputy="${p.id}" value="${r}" ${(p.deputyFor || []).includes(r) ? 'checked' : ''}><span style="color:${R.ROLES[r].color}">${R.ROLES[r].short}</span></label>`).join('')}</td>
          <td><button class="del" data-del-person="${p.id}" title="Person löschen">✕</button></td></tr>`).join('')
@@ -62,7 +75,7 @@
     const sel = $('vPerson');
     const prev = sel.value;
     sel.innerHTML = '<option value="">– wählen –</option>' + list.map(p =>
-      `<option value="${p.id}">${esc(p.name)} (${R.ROLES[p.role].label})</option>`).join('');
+      `<option value="${p.id}">${esc(p.name)} (${R.ROLES[p.role].label}${R.QUAL_ORDER.filter(q => R.hasQual(p, q)).map(q => ', ' + R.QUALS[q].short).join('')})</option>`).join('');
     if (personById(prev)) sel.value = prev;
   }
 
@@ -70,19 +83,36 @@
     e.preventDefault();
     const name = $('pName').value.trim();
     if (!name) return;
-    state.persons.push({ id: uid(), name, role: $('pRole').value, deputyFor: [] });
+    state.persons.push({ id: uid(), name, role: $('pRole').value, deputyFor: [], quals: [] });
     $('pName').value = '';
     $('pName').focus();
     save(); renderAll();
   });
 
   $('tblPersons').addEventListener('change', e => {
+    const qid = e.target.dataset.qual;
+    if (qid) {
+      const p = personById(qid);
+      const set = new Set(p.quals || []);
+      if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
+      p.quals = R.QUAL_ORDER.filter(q => set.has(q));
+      save(); renderAll();
+      return;
+    }
     const id = e.target.dataset.deputy;
     if (!id) return;
     const p = personById(id);
     const set = new Set(p.deputyFor || []);
     if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
     p.deputyFor = R.ROLE_ORDER.filter(r => set.has(r));
+    save(); renderAll();
+  });
+
+  $('qualMin').addEventListener('change', e => {
+    const q = e.target.dataset.qualmin;
+    if (!q) return;
+    const n = Math.max(0, Math.floor(Number(e.target.value) || 0));
+    state.settings.qualMin[q] = n;
     save(); renderAll();
   });
 
@@ -170,10 +200,10 @@
     const dayInfo = days.map(d => {
       const work = R.isWorkday(d, state.settings);
       const hol = R.holidayName(d);
-      const st = R.staffing(d, state.persons, state.vacations);
+      const st = R.staffing(d, state.persons, state.vacations, state.settings.qualMin);
       const deputy = {};
       for (const x of st.deputies) deputy[x.person.id] = x.role;
-      return { d, work, hol, counts: st.counts, deputy, viol: work ? st.violations : [] };
+      return { d, work, hol, counts: st.counts, quals: st.quals, deputy, viol: work ? st.violations : [] };
     });
 
     let html = '<thead><tr><th class="name">Mitarbeiter</th>';
@@ -194,7 +224,7 @@
         html += `<tr class="group"><td class="name" style="color:${R.ROLES[p.role].color}">${R.ROLES[p.role].label}</td>${dayInfo.map(i => `<td class="${i.work ? '' : 'off'}"></td>`).join('')}</tr>`;
       }
       const color = R.ROLES[p.role].color;
-      html += `<tr><td class="name" style="border-left-color:${color}">${esc(p.name)}</td>`;
+      html += `<tr><td class="name" style="border-left-color:${color}">${esc(p.name)} ${qualBadges(p)}</td>`;
       for (const i of dayInfo) {
         const absent = R.isAbsent(p.id, i.d, state.vacations);
         if (absent && i.work) html += `<td class="vac" style="background:${color}" title="${esc(p.name)}: Urlaub ${R.deDate(i.d)}">U</td>`;
@@ -216,8 +246,19 @@
         html += `<tr><td class="name" style="border-left-color:${R.ROLES[r].color}">${R.ROLES[r].label}</td>`;
         for (const i of dayInfo) {
           if (!i.work) { html += '<td class="off"></td>'; continue; }
-          const bad = i.viol.some(v => v.role === r);
+          const bad = i.viol.some(v => v.key === r);
           html += `<td class="${bad ? 'badc' : ''}">${i.counts[r]}</td>`;
+        }
+        html += '</tr>';
+      }
+      for (const q of R.QUAL_ORDER) {
+        if (!state.settings.qualMin[q] && !state.persons.some(p => R.hasQual(p, q))) continue;
+        const min = state.settings.qualMin[q];
+        html += `<tr><td class="name" style="border-left-color:${R.QUALS[q].color}">↳ ${R.QUALS[q].label}${min ? ` <small>(mind. ${min})</small>` : ''}</td>`;
+        for (const i of dayInfo) {
+          if (!i.work) { html += '<td class="off"></td>'; continue; }
+          const bad = i.viol.some(v => v.key === 'Q:' + q);
+          html += `<td class="${bad ? 'badc' : ''}">${i.quals[q]}</td>`;
         }
         html += '</tr>';
       }
@@ -268,7 +309,7 @@
       if (!Array.isArray(data.persons) || !Array.isArray(data.vacations)) throw new Error('Ungültiges Format');
       if (!confirm('Aktuelle Daten durch Import ersetzen?')) return;
       state = { persons: data.persons, vacations: data.vacations,
-        settings: Object.assign({ saturday: false, holidays: true }, data.settings) };
+        settings: normSettings(data.settings) };
       $('setSaturday').checked = state.settings.saturday;
       $('setHolidays').checked = state.settings.holidays;
       save(); renderAll();
@@ -281,15 +322,16 @@
 
   // ---------- Start ----------
   $('pRole').innerHTML = R.ROLE_ORDER.map(r => `<option value="${r}">${R.ROLES[r].label}</option>`).join('');
-  $('rulesList').innerHTML = R.RULES.map(r => `<li>${r.text}</li>`).join('') +
-    '<li>Geprüft wird jeder Arbeitstag im Zeitraum anhand der dann anwesenden Personen.</li>' +
-    '<li>Vertretungen (Spalte „Vertritt“ bei den Personen) werden automatisch eingesetzt, wenn nötig. ' +
-    'Wer vertritt, fehlt an diesem Tag in seiner eigenen Stelle.</li>';
   $('legend').innerHTML = R.ROLE_ORDER.map(chip).join('') +
     '<span class="chip" style="background:#9ca3af">Wochenende/Feiertag</span>' +
     '<span class="chip" style="background:#fff;color:#374151;box-shadow:inset 0 0 0 2px #374151">WM = vertritt Stelle</span>';
 
   function renderAll() {
+    $('rulesList').innerHTML = R.RULES.map(r => `<li>${r.text}</li>`).join('') +
+      R.QUAL_ORDER.filter(q => state.settings.qualMin[q] > 0).map(q => `<li>mind. ${state.settings.qualMin[q]} ${R.QUALS[q].label} anwesend</li>`).join('') +
+      '<li>Geprüft wird jeder Arbeitstag im Zeitraum anhand der dann anwesenden Personen.</li>' +
+      '<li>Vertretungen (Spalte „Vertritt“ bei den Personen) werden automatisch eingesetzt, wenn nötig. ' +
+      'Wer vertritt, fehlt an diesem Tag in seiner eigenen Stelle.</li>';
     renderPersons();
     renderVacations();
     renderCalendar();
