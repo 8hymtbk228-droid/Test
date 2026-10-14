@@ -39,6 +39,18 @@
 
   const qualBadge = q => `<span class="qual" style="background:${R.QUALS[q].color}" title="${R.QUALS[q].label}">${R.QUALS[q].short}</span>`;
   const qualBadges = p => R.QUAL_ORDER.filter(q => R.hasQual(p, q)).map(qualBadge).join('');
+  // Zweistufige Bestätigung im Button selbst (confirm() steht nicht überall zur Verfügung)
+  function confirmed(btn, label) {
+    if (btn.classList.contains('armed')) return true;
+    const orig = btn.textContent;
+    btn.classList.add('armed');
+    btn.textContent = label;
+    setTimeout(() => {
+      if (btn.isConnected && btn.classList.contains('armed')) { btn.classList.remove('armed'); btn.textContent = orig; }
+    }, 4000);
+    return false;
+  }
+
   const chip = role => `<span class="chip" style="background:${R.ROLES[role].color}">${R.ROLES[role].label}</span>`;
   const personById = id => state.persons.find(p => p.id === id);
   const sortedPersons = () => state.persons.slice().sort((a, b) =>
@@ -73,7 +85,8 @@
          <td class="deps">${R.ROLE_ORDER.filter(r => r !== p.role).map(r =>
            `<label title="${esc(p.name)} darf ${R.ROLES[r].label} vertreten"><input type="checkbox" data-deputy="${p.id}" value="${r}" ${(p.deputyFor || []).includes(r) ? 'checked' : ''}><span style="color:${R.ROLES[r].color}">${R.ROLES[r].short}</span></label>`).join('')}</td>
          <td><button class="del" data-del-person="${p.id}" title="Person löschen">✕</button></td></tr>`).join('')
-      : '<tr><td class="empty">Noch keine Personen erfasst.</td></tr>';
+      : '<tr><td class="empty">Noch keine Personen erfasst. Oben Name und Stelle eingeben – oder zum Ausprobieren ' +
+        '<button type="button" class="ghost" id="btnSample">Beispielteam laden</button></td></tr>';
 
     const sel = $('vPerson');
     const prev = sel.value;
@@ -120,11 +133,12 @@
   });
 
   $('tblPersons').addEventListener('click', e => {
-    const id = e.target.dataset.delPerson;
-    if (!id) return;
-    const p = personById(id);
+    if (e.target.id === 'btnSample') { loadSample(); return; }
+    const btn = e.target.closest('[data-del-person]');
+    if (!btn) return;
+    const id = btn.dataset.delPerson;
     const n = state.vacations.filter(v => v.personId === id).length;
-    if (!confirm(`${p.name} löschen?` + (n ? ` (${n} Urlaub(e) werden mitgelöscht)` : ''))) return;
+    if (!confirmed(btn, n ? `Löschen? (${n} Urlaub${n === 1 ? '' : 'e'} weg)` : 'Löschen?')) return;
     state.persons = state.persons.filter(x => x.id !== id);
     state.vacations = state.vacations.filter(v => v.personId !== id);
     save(); renderAll();
@@ -185,8 +199,9 @@
   }
 
   $('tblVacations').addEventListener('click', e => {
-    const id = e.target.dataset.delVac;
-    if (!id || !confirm('Urlaub stornieren?')) return;
+    const btn = e.target.closest('[data-del-vac]');
+    if (!btn || !confirmed(btn, 'Stornieren?')) return;
+    const id = btn.dataset.delVac;
     state.vacations = state.vacations.filter(v => v.id !== id);
     save(); renderAll();
   });
@@ -295,39 +310,95 @@
   $('setSaturday').onchange = e => { state.settings.saturday = e.target.checked; save(); renderAll(); };
   $('setHolidays').onchange = e => { state.settings.holidays = e.target.checked; save(); renderAll(); };
 
-  $('btnExport').onclick = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  function applyData(data) {
+    if (!data || !Array.isArray(data.persons) || !Array.isArray(data.vacations)) {
+      throw new Error('Der Text enthält keine Urlaubsplanung (persons/vacations fehlen).');
+    }
+    state = { persons: data.persons, vacations: data.vacations, settings: normSettings(data.settings) };
+    $('setSaturday').checked = state.settings.saturday;
+    $('setHolidays').checked = state.settings.holidays;
+    save(); renderAll();
+  }
+
+  // Beispielteam zum Ausprobieren (fiktive Namen)
+  function loadSample() {
+    const t = (name, role, extra) => Object.assign({ id: uid(), name, role, deputyFor: [], quals: [] }, extra);
+    applyData({
+      persons: [
+        t('Beispiel Meister', 'MEISTER'),
+        t('Beispiel Berater 1', 'SB'), t('Beispiel Berater 2', 'SB'),
+        t('Beispiel Assistentin', 'ASSIST'),
+        t('Beispiel Techniker 1', 'TECH', { quals: ['P57A'], deputyFor: ['MEISTER'] }),
+        t('Beispiel Techniker 2', 'TECH', { quals: ['P57A', 'DST'] }),
+        t('Beispiel Techniker 3', 'TECH', { quals: ['DST'] }),
+        t('Beispiel Techniker 4', 'TECH'), t('Beispiel Techniker 5', 'TECH'), t('Beispiel Techniker 6', 'TECH'),
+        t('Beispiel Teilevertrieb', 'TEILE'),
+      ],
+      vacations: [],
+      settings: state.settings,
+    });
+  }
+
+  const exportJson = () => JSON.stringify(state, null, 2);
+  $('btnData').onclick = () => {
+    const panel = $('dataPanel');
+    panel.hidden = !panel.hidden;
+    $('btnData').setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden) {
+      $('exportText').value = exportJson();
+      $('exportMsg').textContent = '';
+      panel.scrollIntoView({ block: 'start' });
+    }
+  };
+  $('btnCopy').onclick = () => {
+    const ta = $('exportText');
+    ta.value = exportJson();
+    const fallback = () => { ta.focus(); ta.select(); $('exportMsg').textContent = 'Text ist markiert – mit Strg+C kopieren.'; };
+    try {
+      navigator.clipboard.writeText(ta.value)
+        .then(() => { $('exportMsg').textContent = 'Kopiert.'; }, fallback);
+    } catch (e) { fallback(); }
+  };
+  $('btnDownload').onclick = () => {
+    const blob = new Blob([exportJson()], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `urlaubsplanung-${today}.json`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  $('btnImport').onclick = () => $('fileImport').click();
   $('fileImport').onchange = async e => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (file) $('importText').value = await file.text();
+    e.target.value = '';
+  };
+  $('btnImport').onclick = () => {
+    const msg = $('importMsg');
+    let data;
     try {
-      const data = JSON.parse(await file.text());
-      if (!Array.isArray(data.persons) || !Array.isArray(data.vacations)) throw new Error('Ungültiges Format');
-      if (!confirm('Aktuelle Daten durch Import ersetzen?')) return;
-      state = { persons: data.persons, vacations: data.vacations,
-        settings: normSettings(data.settings) };
-      $('setSaturday').checked = state.settings.saturday;
-      $('setHolidays').checked = state.settings.holidays;
-      save(); renderAll();
+      data = JSON.parse($('importText').value);
+      if (!data || !Array.isArray(data.persons) || !Array.isArray(data.vacations)) {
+        throw new Error('Der Text enthält keine Urlaubsplanung (persons/vacations fehlen).');
+      }
     } catch (err) {
-      alert('Import fehlgeschlagen: ' + err.message);
-    } finally {
-      e.target.value = '';
+      const why = err instanceof SyntaxError ? 'Der Text ist keine gültige Sicherung.' : err.message;
+      msg.innerHTML = `<div class="msg bad">Laden nicht möglich: ${esc(why)} Bitte den vollständigen gesicherten Text einfügen.</div>`;
+      return;
     }
+    if (!confirmed($('btnImport'), 'Aktuelle Daten ersetzen?')) return;
+    applyData(data);
+    $('btnImport').classList.remove('armed');
+    $('btnImport').textContent = 'Daten übernehmen';
+    $('importText').value = '';
+    $('exportText').value = exportJson();
+    msg.innerHTML = `<div class="msg ok">Geladen: ${state.persons.length} Personen, ${state.vacations.length} Urlaube.</div>`;
   };
 
   // ---------- Start ----------
   $('pRole').innerHTML = R.ROLE_ORDER.map(r => `<option value="${r}">${R.ROLES[r].label}</option>`).join('');
   $('legend').innerHTML = R.ROLE_ORDER.map(chip).join('') +
-    '<span class="chip" style="background:#9ca3af">Wochenende/Feiertag</span>' +
-    '<span class="chip" style="background:#fff;color:#374151;box-shadow:inset 0 0 0 2px #374151">WM = vertritt Stelle</span>';
+    '<span class="chip" style="background:var(--off);color:var(--muted)">Wochenende/Feiertag</span>' +
+    '<span class="chip outline">WM = vertritt Stelle</span>';
 
   function renderAll() {
     $('rulesList').innerHTML = R.RULES.map(r => `<li>${r.text}</li>`).join('') +

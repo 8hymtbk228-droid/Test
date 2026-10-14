@@ -6,9 +6,15 @@ Stellenverhältnisse eingehalten bleiben. Andernfalls zeigt die App Tage und Gru
 
 ## Starten
 
-`index.html` im Browser öffnen – keine Installation, kein Server nötig.
-Die Daten liegen im `localStorage` des Browsers; mit **Export/Import** (JSON) sichern oder auf
-einen anderen Rechner übertragen.
+**Variante A – lokal:** Auf GitHub „Code → Download ZIP“, entpacken, `index.html` doppelklicken.
+Keine Installation, kein Server nötig.
+
+**Variante B – als Claude-Artifact:** `node tools/build-artifact.js <ziel.html>` erzeugt eine einzelne
+Seite zum Veröffentlichen.
+
+Die Daten liegen im Browser-Speicher (`localStorage`) – getrennt je Browser, Gerät und Variante.
+Über **Daten sichern / laden** lassen sie sich als Text kopieren (oder lokal als Datei speichern)
+und wieder einlesen. Regelmäßig sichern!
 
 ## Regeln (geprüft je Arbeitstag, anhand der dann anwesenden Personen)
 
