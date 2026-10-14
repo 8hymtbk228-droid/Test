@@ -359,7 +359,7 @@
         .then(() => { $('exportMsg').textContent = 'Kopiert.'; }, fallback);
     } catch (e) { fallback(); }
   };
-  $('btnDownload').onclick = () => {
+  if ($('btnDownload')) $('btnDownload').onclick = () => {
     const blob = new Blob([exportJson()], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

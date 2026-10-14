@@ -12,6 +12,8 @@ const head = html.match(/<head>([\s\S]*?)<\/head>/)[1]
   .replace(/\s*<meta charset[^>]*>/, '')
   .replace(/\s*<meta name="viewport"[^>]*>/, '');
 const body = html.match(/<body>([\s\S]*?)<\/body>/)[1]
+  // Datei-Downloads sind in der Artifact-Ansicht gesperrt -> nur lokal anbieten
+  .replace(/<!--local-only-->[\s\S]*?<!--\/local-only-->/g, '')
   .replace(/<script src="([^"]+)"><\/script>/g, (_, src) =>
     `<script>\n${fs.readFileSync(path.join(root, src), 'utf8')}\n</script>`);
 
